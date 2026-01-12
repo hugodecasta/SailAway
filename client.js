@@ -467,7 +467,16 @@ async function main() {
             }
         } catch (err) {
             canApplyControls = false
-            console.warn(`[client] controls disabled (input backend failed): ${err?.message ?? err}`)
+            const message = err?.message ?? String(err)
+            const code = err?.code
+            const path = err?.path
+            if (platform !== 'win32' && code === 'ENOENT' && (path === 'xdotool' || /\bxdotool\b/i.test(message))) {
+                console.warn('[client] controls disabled (input backend failed): xdotool not found')
+                console.warn('[client] install on Ubuntu/Debian: sudo apt update && sudo apt install -y xdotool')
+                console.warn('[client] or disable controls: SAILAWAY_APPLY_CONTROLS=0 node .')
+            } else {
+                console.warn(`[client] controls disabled (input backend failed): ${message}`)
+            }
         }
     }
 
