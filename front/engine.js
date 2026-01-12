@@ -171,7 +171,6 @@ export function create_vizu_canvas(session_id) {
     async function markDirty() {
         // post snapshot
         const controls = snapshotControls()
-        console.log(controls.mouse.buttons)
         await set_controls(session_id, controls)
     }
 
@@ -216,21 +215,21 @@ export function create_vizu_canvas(session_id) {
 
     function onMouseMove(event) {
         const pos = getNormalizedMouseFromEvent(event)
-        mouse = { ...mouse, ...pos, buttons: event.buttons ?? mouse.buttons }
+        mouse = { ...mouse, ...pos }
         markDirty()
     }
 
     function onMouseDown(event) {
         canvas.focus()
         const pos = getNormalizedMouseFromEvent(event)
-        mouse = { ...mouse, ...pos, buttons: event.buttons ?? mouse.buttons }
+        mouse.buttons = event.buttons ?? mouse.buttons
         markDirty()
         event.preventDefault()
     }
 
     function onMouseUp(event) {
         const pos = getNormalizedMouseFromEvent(event)
-        mouse = { ...mouse, ...pos, buttons: event.buttons ?? 0 }
+        mouse.buttons = -1
         markDirty()
         event.preventDefault()
     }

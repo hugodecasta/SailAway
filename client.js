@@ -528,6 +528,7 @@ while ($true) {
 }
 
 let old_keys = {}
+let old_mouse_btn = null
 async function applyControlsWithWindows(state, controls, geometry, driver) {
     if (!controls) return state
 
@@ -548,26 +549,12 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
             state.lastMouseY = y
         }
 
-        const nextMask = Number(mouse.buttons ?? 0) | 0
-        const prevMask = state.lastButtonsMask | 0
-        if (nextMask !== prevMask) {
-            // Same mapping as X11: left=1, right=3, middle=2, back=8, forward=9.
-            // Our PowerShell driver understands these numbers.
-            const nextButtons = new Set(buttonMaskToXdotoolButtons(nextMask))
-            const prevButtons = new Set(buttonMaskToXdotoolButtons(prevMask))
+        const mouse_button = mouse.buttons
+        if (old_mouse_btn != mouse_button) {
 
-            for (const b of prevButtons) {
-                if (!nextButtons.has(b)) {
-                    await driver.send({ type: 'mouseup', button: b })
-                }
-            }
-            for (const b of nextButtons) {
-                if (!prevButtons.has(b)) {
-                    await driver.send({ type: 'mousedown', button: b })
-                }
-            }
-
-            state.lastButtonsMask = nextMask
+            await driver.send({ type: 'mouseup', button: old_mouse_btn })
+            await driver.send({ type: 'mousedown', button: mouse_button })
+            old_mouse_btn = mouse_button
         }
 
         // Wheel (one-shot, expressed in steps; positive = scroll down)
@@ -609,7 +596,6 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
     const keysDown = controls.keys
     if (Array.isArray(keysDown)) {
         for (const entry of keysDown) {
-            console.log(entry)
             const [key, code] = entry.split('||')
             if (old_keys[entry]) await sim_hold(key, code)
             else await sim_keydown(key, code)
