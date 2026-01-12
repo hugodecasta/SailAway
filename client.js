@@ -538,6 +538,7 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
 
     const mouse = controls.mouse ?? null
     if (mouse && typeof mouse.x === 'number' && typeof mouse.y === 'number') {
+        console.log(mouse)
         const x = Math.max(0, Math.min(geometry.width - 1, Math.round(mouse.x * (geometry.width - 1))))
         const y = Math.max(0, Math.min(geometry.height - 1, Math.round(mouse.y * (geometry.height - 1))))
         if (x !== state.lastMouseX || y !== state.lastMouseY) {

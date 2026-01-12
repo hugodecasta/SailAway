@@ -168,8 +168,11 @@ export function create_vizu_canvas(session_id) {
         }
     }
 
-    function markDirty() {
-        dirty = true
+    async function markDirty() {
+        // post snapshot
+        const controls = snapshotControls()
+        console.log(controls.mouse.buttons)
+        await set_controls(session_id, controls)
     }
 
     async function maybePostControls() {
@@ -340,9 +343,9 @@ export function create_vizu_canvas(session_id) {
     }
 
     rafId = window.requestAnimationFrame(drawLoop)
-    postTimer = window.setInterval(() => {
-        void maybePostControls()
-    }, 50)
+    // postTimer = window.setInterval(() => {
+    //     void maybePostControls()
+    // }, 50)
 
     // Periodic wake ping so the client knows a viewer is connected.
     // Fire immediately once, then every 30s.
