@@ -536,11 +536,12 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
         return state
     }
 
+    // Mouse
     const mouse = controls.mouse ?? null
     if (mouse && typeof mouse.x === 'number' && typeof mouse.y === 'number') {
-        console.log(mouse)
         const x = Math.max(0, Math.min(geometry.width - 1, Math.round(mouse.x * (geometry.width - 1))))
         const y = Math.max(0, Math.min(geometry.height - 1, Math.round(mouse.y * (geometry.height - 1))))
+
         if (x !== state.lastMouseX || y !== state.lastMouseY) {
             await driver.send({ type: 'mousemove', x, y })
             state.lastMouseX = x
@@ -550,6 +551,8 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
         const nextMask = Number(mouse.buttons ?? 0) | 0
         const prevMask = state.lastButtonsMask | 0
         if (nextMask !== prevMask) {
+            // Same mapping as X11: left=1, right=3, middle=2, back=8, forward=9.
+            // Our PowerShell driver understands these numbers.
             const nextButtons = new Set(buttonMaskToXdotoolButtons(nextMask))
             const prevButtons = new Set(buttonMaskToXdotoolButtons(prevMask))
 
@@ -563,6 +566,7 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
                     await driver.send({ type: 'mousedown', button: b })
                 }
             }
+
             state.lastButtonsMask = nextMask
         }
 
@@ -570,9 +574,10 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
         const wheelY = Number(mouse.wheel?.y ?? 0)
         if (Number.isFinite(wheelY) && wheelY !== 0) {
             const steps = Math.max(-20, Math.min(20, Math.trunc(wheelY)))
-            if (steps !== 0) {
-                // WHEEL_DELTA = 120. Positive delta = scroll up.
-                await driver.send({ type: 'wheel', delta: -120 * steps })
+            // Windows wheel delta: positive is typically scroll up; we use positive=down.
+            const delta = -steps * 120
+            if (delta !== 0) {
+                await driver.send({ type: 'wheel', delta })
             }
         }
     }
