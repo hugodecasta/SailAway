@@ -1,4 +1,4 @@
-import { get_stream_url, set_controls } from "./api.js"
+import { get_stream_url, set_controls, set_server } from "./api.js"
 
 function defer() {
     /** @type {(value: any) => void} */
@@ -51,6 +51,7 @@ export function create_vizu_canvas(session_id) {
     let closed = false
     let rafId = 0
     let postTimer = 0
+    let wakeTimer = 0
     let lastSent = ""
 
     function getNormalizedMouseFromEvent(event) {
@@ -72,6 +73,37 @@ export function create_vizu_canvas(session_id) {
             keys: {
                 down: Array.from(keysDown),
             },
+        }
+    }
+
+    function snapshotNeutralControls() {
+        return {
+            mouse: {
+                x: mouse.x,
+                y: mouse.y,
+                dx: 0,
+                dy: 0,
+                buttons: 0,
+            },
+            keys: {
+                down: [],
+            },
+        }
+    }
+
+    async function postWakeSignal() {
+        if (closed) return
+
+        try {
+            // Keep a stable wake marker so the client can detect it.
+            // Also add a tick so this packet is unique over time.
+            await set_controls(session_id, {
+                ...snapshotControls(),
+                wake: "please be awake",
+                wake_tick: Date.now(),
+            })
+        } catch {
+            // Keep UI responsive even if server is down.
         }
     }
 
@@ -176,10 +208,28 @@ export function create_vizu_canvas(session_id) {
         void maybePostControls()
     }, 50)
 
+    // Periodic wake ping so the client knows a viewer is connected.
+    // Fire immediately once, then every 30s.
+    void postWakeSignal()
+    wakeTimer = window.setInterval(() => {
+        void postWakeSignal()
+    }, 30_000)
+
     container.close = () => {
         closed = true
         if (rafId) window.cancelAnimationFrame(rafId)
         if (postTimer) window.clearInterval(postTimer)
+        if (wakeTimer) window.clearInterval(wakeTimer)
+
+        // Remove wake signal + clear any pressed inputs on the remote side.
+        try {
+            void set_controls(session_id, snapshotNeutralControls())
+        } catch {
+            // ignore
+        }
+
+        // Close the image stream (multipart fetch tied to Image.src).
+        img.src = ""
 
         canvas.removeEventListener("mousemove", onMouseMove)
         canvas.removeEventListener("mousedown", onMouseDown)
@@ -236,6 +286,23 @@ export function create_session_div(session_id) {
     return root
 }
 
+const KNOWN_SESSIONS_KEY = "sailaway_known_sessions"
+
+function load_known_sessions() {
+    try {
+        const raw = localStorage.getItem(KNOWN_SESSIONS_KEY)
+        const parsed = raw ? JSON.parse(raw) : {}
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+        return parsed
+    } catch {
+        return {}
+    }
+}
+
+function save_known_sessions(known_sessions) {
+    localStorage.setItem(KNOWN_SESSIONS_KEY, JSON.stringify(known_sessions ?? {}))
+}
+
 export function create_connection_div() {
     const root = document.createElement("div")
     root.style.display = "flex"
@@ -243,6 +310,21 @@ export function create_connection_div() {
     root.style.gap = "12px"
     root.style.padding = "12px"
     root.style.maxWidth = "480px"
+
+    const serverLabel = document.createElement("div")
+    serverLabel.textContent = "Server URL:"
+
+    const serverRow = document.createElement("div")
+    serverRow.style.display = "flex"
+    serverRow.style.gap = "8px"
+
+    const serverInput = document.createElement("input")
+    serverInput.type = "text"
+    serverInput.placeholder = "http://localhost:3232"
+    serverInput.style.flex = "1"
+    serverInput.value = localStorage.getItem("sailaway_server") ?? "http://localhost:3232"
+
+    serverRow.appendChild(serverInput)
 
     const label = document.createElement("div")
     label.textContent = "Enter a session id to connect:"
@@ -264,10 +346,107 @@ export function create_connection_div() {
 
     const connectDeferred = defer()
 
-    function tryConnect() {
-        const value = input.value.trim()
+    const knownTitle = document.createElement("div")
+    knownTitle.textContent = "Known sessions:"
+
+    const knownList = document.createElement("div")
+    knownList.style.display = "flex"
+    knownList.style.flexDirection = "column"
+    knownList.style.gap = "6px"
+
+    function renderKnownSessions() {
+        knownList.replaceChildren()
+
+        const sessions = load_known_sessions()
+        const names = Object.keys(sessions)
+        if (names.length === 0) {
+            const empty = document.createElement("div")
+            empty.style.opacity = "0.7"
+            empty.textContent = "(none)"
+            knownList.appendChild(empty)
+            return
+        }
+
+        for (const name of names) {
+            const sessionId = String(sessions[name] ?? "").trim()
+            if (!sessionId) continue
+
+            const line = document.createElement("div")
+            line.style.display = "flex"
+            line.style.alignItems = "center"
+            line.style.gap = "8px"
+
+            const label = document.createElement("button")
+            label.type = "button"
+            label.textContent = name
+            label.style.flex = "1"
+            label.style.textAlign = "left"
+            label.title = sessionId
+            label.addEventListener("click", () => {
+                connectToSessionId(sessionId)
+            })
+
+            const editBtn = document.createElement("button")
+            editBtn.type = "button"
+            editBtn.textContent = "Edit"
+            editBtn.addEventListener("click", () => {
+                const newName = window.prompt("Rename session", name)
+                if (newName == null) return
+                const trimmed = newName.trim()
+                if (!trimmed) return
+
+                const next = load_known_sessions()
+                const existing = next[trimmed]
+                if (existing != null && String(existing) !== sessionId) {
+                    const ok = window.confirm("That name already exists. Overwrite?")
+                    if (!ok) return
+                }
+                delete next[name]
+                next[trimmed] = sessionId
+                save_known_sessions(next)
+                renderKnownSessions()
+            })
+
+            const delBtn = document.createElement("button")
+            delBtn.type = "button"
+            delBtn.textContent = "Delete"
+            delBtn.addEventListener("click", () => {
+                const next = load_known_sessions()
+                delete next[name]
+                save_known_sessions(next)
+                renderKnownSessions()
+            })
+
+            line.appendChild(label)
+            line.appendChild(editBtn)
+            line.appendChild(delBtn)
+            knownList.appendChild(line)
+        }
+    }
+
+    function applyServerFromInput() {
+        const url = serverInput.value.trim()
+        if (!url) return
+        set_server(url)
+    }
+
+    function connectToSessionId(sessionId) {
+        applyServerFromInput()
+        const value = String(sessionId ?? "").trim()
         if (!value) return
+
+        const sessions = load_known_sessions()
+        const alreadyKnown = Object.values(sessions).some((id) => String(id) === value)
+        if (!alreadyKnown) {
+            sessions[value] = value
+            save_known_sessions(sessions)
+        }
+
         connectDeferred.resolve(value)
+    }
+
+    function tryConnect() {
+        connectToSessionId(input.value)
     }
 
     button.addEventListener("click", tryConnect)
@@ -275,10 +454,20 @@ export function create_connection_div() {
         if (e.key === "Enter") tryConnect()
     })
 
+    serverInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") tryConnect()
+    })
+
     root.wait_for_connect = () => connectDeferred.promise
 
+    renderKnownSessions()
+
+    root.appendChild(serverLabel)
+    root.appendChild(serverRow)
     root.appendChild(label)
     root.appendChild(row)
+    root.appendChild(knownTitle)
+    root.appendChild(knownList)
     return root
 }
 

@@ -6,7 +6,7 @@ import { promises as fs } from 'node:fs'
 
 import screenshot from 'screenshot-desktop'
 
-const server = process.env.SAILAWAY_SERVER ?? 'http://localhost:3232'
+const server = process.env.SAILAWAY_SERVER ?? 'http://localhost:4242'
 const update_time_ms = Number(process.env.SAILAWAY_UPDATE_MS ?? 100) // ms
 const apply_controls = (process.env.SAILAWAY_APPLY_CONTROLS ?? '1') !== '0'
 
@@ -480,7 +480,13 @@ async function main() {
         lastMouseY: -1,
     }
 
+    // Viewer-driven sending: at start timer is 0 -> no images.
+    let hasWakeSignal = false
+
     const tick = async () => {
+        console.log('tick')
+        if (!hasWakeSignal) return console.log('not awake')
+
         try {
             // screenshot-desktop returns a PNG buffer by default.
             const image_buffer = await screenshot({ format: 'jpg' })
@@ -497,6 +503,17 @@ async function main() {
         try {
             const controls = await get_controls(session_id)
             if (!controls) return
+
+            // Wake protocol:
+            // - Client only sends images after seeing the wake marker.
+            // - Once woken, any received control packet resets the 60s send window.
+            if (Date.now() - controls.time < 30_000) {
+                hasWakeSignal = true
+            }
+            else {
+                hasWakeSignal = false
+            }
+
             if (platform === 'win32') {
                 if (!windowsDriver) return
                 controlState = await applyControlsWithWindows(controlState, controls, geometry, windowsDriver)
@@ -508,7 +525,6 @@ async function main() {
         }
     }
 
-    await tick()
     setInterval(() => {
         void tick()
     }, update_time_ms)
