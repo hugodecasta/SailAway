@@ -259,8 +259,7 @@ export function create_vizu_canvas(session_id) {
         // Only capture keys when the viewer is focused.
         if (document.activeElement !== canvas) return
 
-        const key_id = event.key + "||" + event.code
-        console.log(key_id)
+        const key_id = event.keyCode
         if (!downKeys.includes(key_id)) {
             downKeys.push(key_id)
             markDirty()
@@ -300,7 +299,7 @@ export function create_vizu_canvas(session_id) {
     function onKeyUp(event) {
         if (document.activeElement !== canvas) return
 
-        const key_id = event.key + "||" + event.code
+        const key_id = event.keyCode
         const index = downKeys.indexOf(key_id)
         if (index !== -1) {
             downKeys.splice(index, 1)
