@@ -563,7 +563,6 @@ async function main() {
                 return c.time > lasttime
             })
             hasWakeSignal = controls[controls.length - 1].time + 30_000 > Date.now()
-            console.log(used_controls.length)
             if (!used_controls.length) return
 
             for (const control of used_controls) {
