@@ -527,6 +527,7 @@ while ($true) {
     }
 }
 
+let old_keys = {}
 async function applyControlsWithWindows(state, controls, geometry, driver) {
     if (!controls) return state
 
@@ -575,28 +576,45 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
         }
     }
 
+    function sim_keydown(key, code) {
+        // Prefer layout-dependent meaning from `key`, fall back to physical `code`.
+        const vk = keyToWindowsVk(key) ?? codeToWindowsVk(code)
+        if (vk != null) {
+            return driver.send({ type: 'keydown', vk })
+        }
+
+        // Fallback: if it's a single produced character (punctuation, symbols, etc.),
+        // send it through the unicode text channel once on keydown.
+        if (typeof key === 'string' && key.length === 1) {
+            return driver.send({ type: 'text', text: key })
+        }
+    }
+    function sim_keyup(key, code) {
+        const vk = keyToWindowsVk(key) ?? codeToWindowsVk(code)
+        if (vk != null) {
+            return driver.send({ type: 'keyup', vk })
+        }
+    }
+    function sim_hold(key, code) {
+        // Held keys remain down until we send a keyup.
+        // (We intentionally don't auto-repeat here.)
+    }
 
     const keysDown = controls.keys
     if (Array.isArray(keysDown)) {
-        console.log(keysDown)
-        // const nextKeys = new Set()
-        // for (const entry of keysDown) {
-        //     const { code, key } = normalizeKeyEntry(entry)
-        //     const vk = keyToWindowsVk(key) ?? codeToWindowsVk(code)
-        //     if (vk != null) nextKeys.add(vk)
-        // }
-
-        // for (const vk of state.lastKeysDown) {
-        //     if (!nextKeys.has(vk)) {
-        //         await driver.send({ type: 'keyup', vk })
-        //     }
-        // }
-        // for (const vk of nextKeys) {
-        //     if (!state.lastKeysDown.has(vk)) {
-        //         await driver.send({ type: 'keydown', vk })
-        //     }
-        // }
-        // state.lastKeysDown = nextKeys
+        for (const entry of keysDown) {
+            const [key, code] = entry.split('||')
+            if (old_keys[entry]) await sim_hold(key, code)
+            else await sim_keydown(key, code)
+            old_keys[entry] = true
+        }
+        for (const entry in old_keys) {
+            if (!keysDown.includes(entry)) {
+                const [key, code] = entry.split('||')
+                await sim_keyup(key, code)
+                delete old_keys[entry]
+            }
+        }
     }
 
     if (Number.isFinite(time) && time > 0) {
