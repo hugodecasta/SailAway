@@ -580,6 +580,7 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
 
     function sim_keydown(keyIntCode) {
         const vk = toWindowsVkFromBrowserKeyCode(keyIntCode)
+        console.log(keyIntCode, vk)
         if (vk != null) {
             return driver.send({ type: 'keydown', vk })
         }
