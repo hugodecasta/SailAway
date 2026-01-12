@@ -24,12 +24,18 @@ export function create_vizu_canvas(session_id) {
     container.style.display = "flex"
     container.style.flexDirection = "column"
     container.style.gap = "8px"
+    // Prevent children from stretching full width; we'll size the viewer explicitly.
+    container.style.alignItems = "flex-start"
 
     const canvas = document.createElement("canvas")
     canvas.width = 1280
     canvas.height = 720
     canvas.tabIndex = 0
-    canvas.style.maxWidth = "100%"
+    canvas.style.alignSelf = "flex-start"
+    canvas.style.display = "block"
+    // Use natural image size by default; only shrink if needed.
+    canvas.style.maxWidth = "min(100%, 1280px)"
+    canvas.style.height = "auto"
     canvas.style.border = "1px solid #ddd"
 
     const ctx = canvas.getContext("2d")
@@ -42,6 +48,45 @@ export function create_vizu_canvas(session_id) {
     img.decoding = "async"
     img.loading = "eager"
     img.src = get_stream_url(session_id)
+
+    const MAX_VIEW_WIDTH_PX = 1280
+    let lastTarget = { w: canvas.width, h: canvas.height }
+
+    function updateCanvasTargetSize() {
+        const naturalW = img.naturalWidth
+        const naturalH = img.naturalHeight
+        if (!Number.isFinite(naturalW) || !Number.isFinite(naturalH) || naturalW <= 0 || naturalH <= 0) return
+
+        const available = Math.max(
+            1,
+            Math.floor(
+                container.getBoundingClientRect().width ||
+                document.documentElement.clientWidth ||
+                window.innerWidth ||
+                MAX_VIEW_WIDTH_PX
+            )
+        )
+
+        const targetW = Math.max(1, Math.floor(Math.min(naturalW, MAX_VIEW_WIDTH_PX, available)))
+        const targetH = Math.max(1, Math.floor((naturalH * targetW) / naturalW))
+        if (targetW === lastTarget.w && targetH === lastTarget.h) return
+
+        lastTarget = { w: targetW, h: targetH }
+
+        // Canvas buffer size: match the intended display size (no upscaling).
+        canvas.width = targetW
+        canvas.height = targetH
+
+        // CSS size: natural (or max) width, responsive downscaling via max-width.
+        canvas.style.width = `${targetW}px`
+        canvas.style.aspectRatio = `${targetW} / ${targetH}`
+    }
+
+    img.addEventListener("load", () => {
+        // Wait a tick so layout is stable before we read container width.
+        window.requestAnimationFrame(updateCanvasTargetSize)
+    })
+    window.addEventListener("resize", updateCanvasTargetSize)
 
     // Input state.
     const keysDown = new Set()
@@ -180,14 +225,7 @@ export function create_vizu_canvas(session_id) {
     function drawLoop() {
         if (closed) return
 
-        // Resize to match element size for crisp display.
-        const rect = canvas.getBoundingClientRect()
-        const targetW = Math.max(1, Math.floor(rect.width))
-        const targetH = Math.max(1, Math.floor(rect.height))
-        if (targetW !== canvas.width || targetH !== canvas.height) {
-            canvas.width = targetW
-            canvas.height = targetH
-        }
+        updateCanvasTargetSize()
 
         // If the browser updates the image from multipart, drawImage will pick it up.
         if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
@@ -236,6 +274,7 @@ export function create_vizu_canvas(session_id) {
         canvas.removeEventListener("mouseup", onMouseUp)
         window.removeEventListener("keydown", onKeyDown)
         window.removeEventListener("keyup", onKeyUp)
+        window.removeEventListener("resize", updateCanvasTargetSize)
     }
 
     container.appendChild(canvas)

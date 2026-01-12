@@ -10,6 +10,11 @@ const server = process.env.SAILAWAY_SERVER ?? 'http://localhost:8080'
 const update_time_ms = Number(process.env.SAILAWAY_UPDATE_MS ?? 100) // ms
 const apply_controls = (process.env.SAILAWAY_APPLY_CONTROLS ?? '1') !== '0'
 
+const compress_images = (process.env.SAILAWAY_COMPRESS_IMAGES ?? '1') !== '0'
+const image_format = String(process.env.SAILAWAY_IMAGE_FORMAT ?? 'jpeg').toLowerCase() // jpeg|webp|png
+const image_quality = Number(process.env.SAILAWAY_IMAGE_QUALITY ?? 60) // 1..100
+const image_max_dim = Number(process.env.SAILAWAY_IMAGE_MAX_DIM ?? 1280) // px (largest edge)
+
 function execFileAsync(file, args) {
     return new Promise((resolve, reject) => {
         execFile(file, args, { encoding: 'utf8' }, (err, stdout, stderr) => {
@@ -77,6 +82,47 @@ async function post_image(session_id, image_buffer) {
     if (!res.ok) {
         const text = await res.text().catch(() => '')
         throw new Error(`Upload failed: ${res.status} ${res.statusText}${text ? ` - ${text}` : ''}`)
+    }
+}
+
+async function compress_image_buffer(image_buffer) {
+    if (!compress_images) return image_buffer
+
+    let sharp
+    try {
+        ; ({ default: sharp } = await import('sharp'))
+    } catch {
+        // If sharp isn't available for some reason, fall back to raw frames.
+        return image_buffer
+    }
+
+    // Avoid re-encoding tiny/empty buffers.
+    if (!image_buffer || image_buffer.length < 32) return image_buffer
+
+    const quality = Number.isFinite(image_quality) ? Math.min(100, Math.max(1, Math.round(image_quality))) : 60
+    const maxDim = Number.isFinite(image_max_dim) ? Math.max(1, Math.round(image_max_dim)) : 1280
+
+    try {
+        let pipeline = sharp(image_buffer, { failOnError: false })
+
+        if (maxDim > 0) {
+            pipeline = pipeline.resize({ width: maxDim, height: maxDim, fit: 'inside', withoutEnlargement: true })
+        }
+
+        switch (image_format) {
+            case 'jpg':
+            case 'jpeg':
+                return await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer()
+            case 'webp':
+                return await pipeline.webp({ quality }).toBuffer()
+            case 'png':
+                // PNG is usually larger for desktop frames, but keep as an option.
+                return await pipeline.png({ compressionLevel: 9 }).toBuffer()
+            default:
+                return await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer()
+        }
+    } catch {
+        return image_buffer
     }
 }
 
@@ -497,7 +543,9 @@ async function main() {
 
         try {
             // screenshot-desktop returns a PNG buffer by default.
-            const image_buffer = await screenshot({ format: 'jpg' })
+            // Compress before upload to reduce bandwidth.
+            const raw_buffer = await screenshot()
+            const image_buffer = await compress_image_buffer(raw_buffer)
             await post_image(session_id, image_buffer)
             // console.log('posted')
         } catch (err) {
@@ -505,32 +553,28 @@ async function main() {
         }
     }
 
+    let lasttime = 0
     const controlTick = async () => {
         if (!canApplyControls || !geometry) return
 
         try {
             const controls = await get_controls(session_id)
-            if (!controls) return
+            const used_controls = controls.filter(c => {
+                return c.time > lasttime
+            })
+            hasWakeSignal = controls[controls.length - 1].time + 30_000 > Date.now()
+            console.log(used_controls.length)
+            if (!used_controls.length) return
 
-            // Wake protocol:
-            // - Client only sends images after seeing the wake marker.
-            // - Once woken, any received control packet resets the 60s send window.
-            if (Date.now() - controls.time < 30_000) {
-                hasWakeSignal = true
+            for (const control of used_controls) {
+                if (platform === 'win32') {
+                    if (!windowsDriver) return
+                    controlState = await applyControlsWithWindows(controlState, control, geometry, windowsDriver)
+                } else {
+                    controlState = await applyControlsWithXdotool(controlState, control, geometry)
+                }
             }
-            else {
-                hasWakeSignal = false
-                return
-            }
-
-            console.log(controls)
-
-            if (platform === 'win32') {
-                if (!windowsDriver) return
-                controlState = await applyControlsWithWindows(controlState, controls, geometry, windowsDriver)
-            } else {
-                controlState = await applyControlsWithXdotool(controlState, controls, geometry)
-            }
+            lasttime = used_controls[used_controls.length - 1].time
         } catch {
             // No-op: controls are optional and may not be available yet.
         }
