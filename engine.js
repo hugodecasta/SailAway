@@ -17,19 +17,22 @@ export function post_image(session_id, blob) {
 export function post_controls(session_id, control) {
     ensure_session(session_id)
     session_data[session_id].controls.push(control)
-    const to_remove = []
-    const now = Date.now()
-    for (const control of session_data[session_id].controls) {
-        if (control.time + 4000 < now) {
-            to_remove.push(control)
-        }
+    while (session_data[session_id].controls.length > 50) {
+        session_data[session_id].controls.shift()
     }
-    for (const control of to_remove) {
-        const index = session_data[session_id].controls.indexOf(control)
-        if (index > -1) {
-            session_data[session_id].controls.splice(index, 1)
-        }
-    }
+    // const to_remove = []
+    // const now = Date.now()
+    // for (const control of session_data[session_id].controls) {
+    //     if (control.time + 2000 < now) {
+    //         to_remove.push(control)
+    //     }
+    // }
+    // for (const control of to_remove) {
+    //     const index = session_data[session_id].controls.indexOf(control)
+    //     if (index > -1) {
+    //         session_data[session_id].controls.splice(index, 1)
+    //     }
+    // }
 }
 
 export function get_session_data(session_id) {

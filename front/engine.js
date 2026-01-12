@@ -168,6 +168,7 @@ export function create_vizu_canvas(session_id) {
         }
     }
 
+    let sender_to = null
     async function markDirty() {
         // post snapshot
         const controls = snapshotControls()
@@ -371,6 +372,7 @@ export function create_vizu_canvas(session_id) {
         canvas.removeEventListener("mousemove", onMouseMove)
         canvas.removeEventListener("mousedown", onMouseDown)
         canvas.removeEventListener("mouseup", onMouseUp)
+        canvas.removeEventListener("contextmenu", (e) => e.preventDefault())
         canvas.removeEventListener("wheel", onWheel)
         window.removeEventListener("keydown", onKeyDown)
         window.removeEventListener("keyup", onKeyUp)
