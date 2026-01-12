@@ -189,6 +189,46 @@ function codeToWindowsVk(code) {
     }
 }
 
+function keyToWindowsVk(key) {
+    if (typeof key !== 'string' || !key) return null
+
+    // Prefer layout-dependent meaning from KeyboardEvent.key.
+    if (key.length === 1) {
+        const ch = key
+        // Letters.
+        if (/[a-zA-Z]/.test(ch)) {
+            const up = ch.toUpperCase()
+            const vk = up.charCodeAt(0)
+            if (vk >= 0x41 && vk <= 0x5A) return vk
+        }
+        // Digits.
+        if (/[0-9]/.test(ch)) {
+            const vk = ch.charCodeAt(0)
+            if (vk >= 0x30 && vk <= 0x39) return vk
+        }
+        if (ch === ' ') return 0x20 // VK_SPACE
+    }
+
+    // Named keys.
+    switch (key) {
+        case 'ArrowUp': return 0x26
+        case 'ArrowDown': return 0x28
+        case 'ArrowLeft': return 0x25
+        case 'ArrowRight': return 0x27
+        case 'Enter': return 0x0D
+        case 'Escape': return 0x1B
+        case 'Tab': return 0x09
+        case 'Backspace': return 0x08
+        case 'CapsLock': return 0x14
+        case 'Shift': return 0x10
+        case 'Control': return 0x11
+        case 'Alt': return 0x12
+        case 'Meta': return 0x5B
+        case ' ': return 0x20
+        default: return null
+    }
+}
+
 function codeToXdotoolKey(code) {
     if (typeof code !== 'string' || !code) return null
 
@@ -225,6 +265,50 @@ function codeToXdotoolKey(code) {
         case 'MetaRight': return 'Super_R'
         default: return null
     }
+}
+
+function keyToXdotoolKey(key) {
+    if (typeof key !== 'string' || !key) return null
+
+    if (key.length === 1) {
+        const ch = key
+        if (ch === ' ') return 'space'
+        if (/[a-zA-Z]/.test(ch)) return ch.toLowerCase()
+        if (/[0-9]/.test(ch)) return ch
+        // For other punctuation, try xdotool's keysym name if it matches.
+        // Many layouts will still work for letters (the main goal here).
+        return null
+    }
+
+    switch (key) {
+        case 'ArrowUp': return 'Up'
+        case 'ArrowDown': return 'Down'
+        case 'ArrowLeft': return 'Left'
+        case 'ArrowRight': return 'Right'
+        case 'Enter': return 'Return'
+        case 'Escape': return 'Escape'
+        case 'Tab': return 'Tab'
+        case 'Backspace': return 'BackSpace'
+        case 'CapsLock': return 'Caps_Lock'
+        case 'Shift': return 'Shift_L'
+        case 'Control': return 'Control_L'
+        case 'Alt': return 'Alt_L'
+        case 'Meta': return 'Super_L'
+        case 'Space': return 'space'
+        default: return null
+    }
+}
+
+function normalizeKeyEntry(entry) {
+    if (typeof entry === 'string') {
+        return { code: entry, key: '' }
+    }
+    if (entry && typeof entry === 'object') {
+        const code = typeof entry.code === 'string' ? entry.code : ''
+        const key = typeof entry.key === 'string' ? entry.key : ''
+        return { code, key }
+    }
+    return { code: '', key: '' }
 }
 
 function buttonMaskToXdotoolButtons(mask) {
@@ -318,6 +402,10 @@ function KeyDown([int]$vk) {
 function KeyUp([int]$vk) {
     [WinInput]::keybd_event([byte]$vk, 0, 0x0002, [UIntPtr]::Zero)
 }
+function Wheel([int]$delta) {
+    # MOUSEEVENTF_WHEEL = 0x0800
+    [WinInput]::mouse_event(0x0800, 0, 0, [uint32]$delta, [UIntPtr]::Zero)
+}
 
 while ($true) {
     $line = [Console]::In.ReadLine()
@@ -331,6 +419,8 @@ while ($true) {
         MouseDown([int]$msg.button)
     } elseif ($type -eq 'mouseup') {
         MouseUp([int]$msg.button)
+    } elseif ($type -eq 'wheel') {
+        Wheel([int]$msg.delta)
     } elseif ($type -eq 'keydown') {
         KeyDown([int]$msg.vk)
     } elseif ($type -eq 'keyup') {
@@ -392,13 +482,24 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
             }
             state.lastButtonsMask = nextMask
         }
+
+        // Wheel (one-shot, expressed in steps; positive = scroll down)
+        const wheelY = Number(mouse.wheel?.y ?? 0)
+        if (Number.isFinite(wheelY) && wheelY !== 0) {
+            const steps = Math.max(-20, Math.min(20, Math.trunc(wheelY)))
+            if (steps !== 0) {
+                // WHEEL_DELTA = 120. Positive delta = scroll up.
+                await driver.send({ type: 'wheel', delta: -120 * steps })
+            }
+        }
     }
 
     const keysDown = controls.keys?.down
     if (Array.isArray(keysDown)) {
         const nextKeys = new Set()
-        for (const code of keysDown) {
-            const vk = codeToWindowsVk(code)
+        for (const entry of keysDown) {
+            const { code, key } = normalizeKeyEntry(entry)
+            const vk = keyToWindowsVk(key) ?? codeToWindowsVk(code)
             if (vk != null) nextKeys.add(vk)
         }
 
@@ -458,14 +559,25 @@ async function applyControlsWithXdotool(state, controls, geometry) {
             }
             state.lastButtonsMask = nextMask
         }
+
+        // Wheel (one-shot, expressed in steps; positive = scroll down)
+        const wheelY = Number(mouse.wheel?.y ?? 0)
+        if (Number.isFinite(wheelY) && wheelY !== 0) {
+            const steps = Math.max(-20, Math.min(20, Math.trunc(wheelY)))
+            const button = steps > 0 ? 5 : 4 // X11: 4=up, 5=down
+            for (let i = 0; i < Math.abs(steps); i++) {
+                await execFileAsync('xdotool', ['click', String(button)])
+            }
+        }
     }
 
     // Keyboard
     const keysDown = controls.keys?.down
     if (Array.isArray(keysDown)) {
         const nextKeys = new Set()
-        for (const code of keysDown) {
-            const key = codeToXdotoolKey(code)
+        for (const entry of keysDown) {
+            const { code, key: keyValue } = normalizeKeyEntry(entry)
+            const key = keyToXdotoolKey(keyValue) ?? codeToXdotoolKey(code)
             if (key) nextKeys.add(key)
         }
 
@@ -559,6 +671,10 @@ async function main() {
 
         try {
             const controls = await get_controls(session_id)
+            if (!Array.isArray(controls) || controls.length === 0) {
+                hasWakeSignal = false
+                return
+            }
             const used_controls = controls.filter(c => {
                 return c.time > lasttime
             })
