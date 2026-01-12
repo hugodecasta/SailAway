@@ -676,6 +676,7 @@ async function applyControlsWithXdotool(state, controls, geometry) {
     // Keyboard (held shortcuts/controls)
     const keysDown = controls.keys?.down
     if (Array.isArray(keysDown)) {
+        console.log('Handle key', keysDown)
         const nextKeys = new Set()
         for (const entry of keysDown) {
             const { code, key: keyValue } = normalizeKeyEntry(entry)
