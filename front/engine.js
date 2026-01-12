@@ -89,10 +89,14 @@ export function create_vizu_canvas(session_id) {
     window.addEventListener("resize", updateCanvasTargetSize)
 
     // Input state.
-    // Track by KeyboardEvent.code (stable), but send KeyboardEvent.key (layout-dependent).
+    // Track held keys by KeyboardEvent.code (stable), but send KeyboardEvent.key (layout-dependent).
     // This avoids "stuck keys" when keyup reports a different .key (common with Shift+punctuation).
     /** @type {Map<string, string>} */
-    const keysDown = new Map()
+    const keysHeld = new Map()
+
+    // One-shot typed text (layout-correct). This is the "alien keyboard" channel.
+    // We accumulate characters between posts and clear after a successful send.
+    let typedText = ""
     let lastMouse = { x: 0, y: 0 }
     let mouse = { x: 0, y: 0, buttons: 0 }
     // Wheel is transient; accumulate between sends, then clear after send.
@@ -125,7 +129,8 @@ export function create_vizu_canvas(session_id) {
                 },
             },
             keys: {
-                down: Array.from(keysDown.entries()).map(([code, key]) => ({ code, key })),
+                down: Array.from(keysHeld.entries()).map(([code, key]) => ({ code, key })),
+                press: typedText,
             },
         }
     }
@@ -173,17 +178,31 @@ export function create_vizu_canvas(session_id) {
         if (!dirty) return
 
         const controls = snapshotControls()
-        const serialized = JSON.stringify(controls)
-        if (serialized === lastSent) {
+
+        // De-dupe based on stable state only (wheel/typed text are one-shot).
+        const stableControls = {
+            ...controls,
+            mouse: {
+                ...controls.mouse,
+                wheel: { y: 0 },
+            },
+            keys: {
+                ...controls.keys,
+                press: "",
+            },
+        }
+        const serializedStable = JSON.stringify(stableControls)
+        if (serializedStable === lastSent && !controls.keys.press && !(controls.mouse.wheel?.y)) {
             dirty = false
             return
         }
 
-        lastSent = serialized
+        lastSent = serializedStable
         dirty = false
         lastMouse = { x: mouse.x, y: mouse.y }
         // Wheel steps are one-shot.
         wheelStepsPendingY = 0
+        typedText = ""
 
         try {
             // Fire-and-forget: server stores latest.
@@ -240,16 +259,26 @@ export function create_vizu_canvas(session_id) {
         if (document.activeElement !== canvas) return
 
         const rawKey = typeof event.key === "string" ? event.key : ""
-        // Normalize letters so shift is represented by the Shift key, not by changing key case.
-        let key = rawKey
-        if (key.length === 1 && /[a-zA-Z]/.test(key)) {
-            key = key.toLowerCase()
-        }
-        // Avoid weird dead keys.
-        if (!key || key === "Dead") return
+        if (!rawKey || rawKey === "Dead") return
 
-        if (typeof event.code === "string" && event.code) {
-            keysDown.set(event.code, key)
+        // "Alien keyboard": if this key produces a character, send the produced character verbatim.
+        // Do NOT try to emulate Shift+<physical> for punctuation, because that easily double-applies modifiers.
+        if (!event.ctrlKey && !event.altKey && !event.metaKey && rawKey.length === 1) {
+            typedText = (typedText + rawKey).slice(-128)
+            markDirty()
+
+            if (event.cancelable) event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
+        // Otherwise, treat as a held key (for shortcuts like Ctrl+A, arrows, etc.).
+        const code = typeof event.code === "string" ? event.code : ""
+        if (code) {
+            // Normalize letters so Shift is represented by Shift key (for Ctrl+letter combos).
+            let key = rawKey
+            if (key.length === 1 && /[a-zA-Z]/.test(key)) key = key.toLowerCase()
+            keysHeld.set(code, key)
         }
         markDirty()
 
@@ -261,9 +290,9 @@ export function create_vizu_canvas(session_id) {
 
     function onKeyUp(event) {
         if (document.activeElement !== canvas) return
-        if (typeof event.code === "string" && event.code) {
-            keysDown.delete(event.code)
-        }
+
+        const code = typeof event.code === "string" ? event.code : ""
+        if (code) keysHeld.delete(code)
         markDirty()
         if (event.cancelable) event.preventDefault()
         event.stopPropagation()

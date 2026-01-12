@@ -410,6 +410,29 @@ public static class WinInput {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
     [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT {
+        public uint type;
+        public InputUnion U;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct InputUnion {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBDINPUT {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 }
 '@
 Add-Type -TypeDefinition $signature -Language CSharp
@@ -443,6 +466,26 @@ function Wheel([int]$delta) {
     [WinInput]::mouse_event(0x0800, 0, 0, [uint32]$delta, [UIntPtr]::Zero)
 }
 
+function TypeText([string]$text) {
+    if ([string]::IsNullOrEmpty($text)) { return }
+    # KEYEVENTF_UNICODE = 0x0004, KEYEVENTF_KEYUP = 0x0002
+    foreach ($ch in $text.ToCharArray()) {
+        $inputs = @(
+            New-Object WinInput+INPUT,
+            New-Object WinInput+INPUT
+        )
+        $inputs[0].type = 1
+        $inputs[0].U.ki.wVk = 0
+        $inputs[0].U.ki.wScan = [uint16][int][char]$ch
+        $inputs[0].U.ki.dwFlags = 0x0004
+        $inputs[1].type = 1
+        $inputs[1].U.ki.wVk = 0
+        $inputs[1].U.ki.wScan = [uint16][int][char]$ch
+        $inputs[1].U.ki.dwFlags = 0x0004 -bor 0x0002
+        [WinInput]::SendInput(2, $inputs, [System.Runtime.InteropServices.Marshal]::SizeOf([type]WinInput+INPUT)) | Out-Null
+    }
+}
+
 while ($true) {
     $line = [Console]::In.ReadLine()
     if ($null -eq $line) { break }
@@ -457,6 +500,8 @@ while ($true) {
         MouseUp([int]$msg.button)
     } elseif ($type -eq 'wheel') {
         Wheel([int]$msg.delta)
+    } elseif ($type -eq 'text') {
+        TypeText([string]$msg.text)
     } elseif ($type -eq 'keydown') {
         KeyDown([int]$msg.vk)
     } elseif ($type -eq 'keyup') {
@@ -528,6 +573,12 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
                 await driver.send({ type: 'wheel', delta: -120 * steps })
             }
         }
+    }
+
+    // Type produced text as unicode ("alien keyboard").
+    const pressText = typeof controls.keys?.press === 'string' ? controls.keys.press : ''
+    if (pressText) {
+        await driver.send({ type: 'text', text: pressText })
     }
 
     const keysDown = controls.keys?.down
@@ -607,7 +658,14 @@ async function applyControlsWithXdotool(state, controls, geometry) {
         }
     }
 
-    // Keyboard
+    // Type produced text ("alien keyboard").
+    const pressText = typeof controls.keys?.press === 'string' ? controls.keys.press : ''
+    if (pressText) {
+        // Clears modifiers so Shift/Ctrl being held doesn't mutate the typed characters.
+        await execFileAsync('xdotool', ['type', '--clearmodifiers', '--delay', '0', pressText])
+    }
+
+    // Keyboard (held shortcuts/controls)
     const keysDown = controls.keys?.down
     if (Array.isArray(keysDown)) {
         const nextKeys = new Set()
