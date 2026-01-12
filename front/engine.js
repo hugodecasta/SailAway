@@ -258,6 +258,7 @@ export function create_vizu_canvas(session_id) {
         if (document.activeElement !== canvas) return
 
         const key_id = event.key + "||" + event.code
+        console.log(key_id)
         if (!downKeys.includes(key_id)) {
             downKeys.push(key_id)
             markDirty()

@@ -603,6 +603,7 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
     const keysDown = controls.keys
     if (Array.isArray(keysDown)) {
         for (const entry of keysDown) {
+            console.log(entry)
             const [key, code] = entry.split('||')
             if (old_keys[entry]) await sim_hold(key, code)
             else await sim_keydown(key, code)
