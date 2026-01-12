@@ -6,7 +6,7 @@ import { promises as fs } from 'node:fs'
 
 import screenshot from 'screenshot-desktop'
 
-const server = process.env.SAILAWAY_SERVER ?? 'http://localhost:4242'
+const server = process.env.SAILAWAY_SERVER ?? 'http://localhost:8080'
 const update_time_ms = Number(process.env.SAILAWAY_UPDATE_MS ?? 100) // ms
 const apply_controls = (process.env.SAILAWAY_APPLY_CONTROLS ?? '1') !== '0'
 
@@ -484,8 +484,7 @@ async function main() {
     let hasWakeSignal = false
 
     const tick = async () => {
-        console.log('tick')
-        if (!hasWakeSignal) return console.log('not awake')
+        if (!hasWakeSignal) return
 
         try {
             // screenshot-desktop returns a PNG buffer by default.
