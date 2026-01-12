@@ -520,7 +520,10 @@ async function main() {
             }
             else {
                 hasWakeSignal = false
+                return
             }
+
+            console.log(controls)
 
             if (platform === 'win32') {
                 if (!windowsDriver) return
