@@ -92,6 +92,9 @@ export function create_vizu_canvas(session_id) {
     const keysDown = new Set()
     let lastMouse = { x: 0, y: 0 }
     let mouse = { x: 0, y: 0, buttons: 0 }
+    // Wheel is transient; accumulate between sends, then clear after send.
+    let wheelAccY = 0
+    let wheelStepsPendingY = 0
     let dirty = true
     let closed = false
     let rafId = 0
@@ -114,6 +117,9 @@ export function create_vizu_canvas(session_id) {
                 dx: mouse.x - lastMouse.x,
                 dy: mouse.y - lastMouse.y,
                 buttons: mouse.buttons,
+                wheel: {
+                    y: wheelStepsPendingY,
+                },
             },
             keys: {
                 down: Array.from(keysDown),
@@ -129,6 +135,9 @@ export function create_vizu_canvas(session_id) {
                 dx: 0,
                 dy: 0,
                 buttons: 0,
+                wheel: {
+                    y: 0,
+                },
             },
             keys: {
                 down: [],
@@ -170,6 +179,8 @@ export function create_vizu_canvas(session_id) {
         lastSent = serialized
         dirty = false
         lastMouse = { x: mouse.x, y: mouse.y }
+        // Wheel steps are one-shot.
+        wheelStepsPendingY = 0
 
         try {
             // Fire-and-forget: server stores latest.
@@ -200,24 +211,53 @@ export function create_vizu_canvas(session_id) {
         event.preventDefault()
     }
 
+    function onWheel(event) {
+        // Prevent page scrolling while controlling.
+        canvas.focus()
+        // Normalize wheel into integer "steps".
+        // - deltaMode 0: pixels (typical), treat ~100px as one step
+        // - deltaMode 1: lines, treat ~3 lines as one step
+        // - deltaMode 2: pages, treat 1 page as one step
+        const unit = event.deltaMode === 1 ? 3 : event.deltaMode === 2 ? 1 : 100
+        wheelAccY += Number(event.deltaY) || 0
+        const steps = Math.trunc(wheelAccY / unit)
+        if (steps !== 0) {
+            wheelAccY -= steps * unit
+            // Clamp burstiness a bit so we don't spam.
+            wheelStepsPendingY = Math.max(-20, Math.min(20, wheelStepsPendingY + steps))
+            markDirty()
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+    }
+
     function onKeyDown(event) {
+        // Only capture keys when the viewer is focused.
+        if (document.activeElement !== canvas) return
+
         // Keep it simple: send KeyboardEvent.code.
         keysDown.add(event.code)
         markDirty()
-        // Prevent scrolling with arrows/space while controlling.
-        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
-            event.preventDefault()
-        }
+
+        // Avoid the controller (browser) interpreting key combos.
+        // Note: some browser/OS reserved shortcuts may still win.
+        if (event.cancelable) event.preventDefault()
+        event.stopPropagation()
     }
 
     function onKeyUp(event) {
+        if (document.activeElement !== canvas) return
         keysDown.delete(event.code)
         markDirty()
+        if (event.cancelable) event.preventDefault()
+        event.stopPropagation()
     }
 
     canvas.addEventListener("mousemove", onMouseMove)
     canvas.addEventListener("mousedown", onMouseDown)
     canvas.addEventListener("mouseup", onMouseUp)
+    canvas.addEventListener("wheel", onWheel, { passive: false })
     canvas.addEventListener("contextmenu", (e) => e.preventDefault())
     window.addEventListener("keydown", onKeyDown)
     window.addEventListener("keyup", onKeyUp)
@@ -272,6 +312,7 @@ export function create_vizu_canvas(session_id) {
         canvas.removeEventListener("mousemove", onMouseMove)
         canvas.removeEventListener("mousedown", onMouseDown)
         canvas.removeEventListener("mouseup", onMouseUp)
+        canvas.removeEventListener("wheel", onWheel)
         window.removeEventListener("keydown", onKeyDown)
         window.removeEventListener("keyup", onKeyUp)
         window.removeEventListener("resize", updateCanvasTargetSize)
