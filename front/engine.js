@@ -1,5 +1,7 @@
 import { get_stream_url, set_controls, set_server } from "./api.js"
 
+const downKeys = []
+
 function defer() {
     /** @type {(value: any) => void} */
     let resolve
@@ -128,10 +130,7 @@ export function create_vizu_canvas(session_id) {
                     y: wheelStepsPendingY,
                 },
             },
-            keys: {
-                down: Array.from(keysHeld.entries()).map(([code, key]) => ({ code, key })),
-                press: typedText,
-            },
+            keys: Array.from(downKeys)
         }
     }
 
@@ -258,44 +257,58 @@ export function create_vizu_canvas(session_id) {
         // Only capture keys when the viewer is focused.
         if (document.activeElement !== canvas) return
 
-        const rawKey = typeof event.key === "string" ? event.key : ""
-        if (!rawKey || rawKey === "Dead") return
-
-        // "Alien keyboard": if this key produces a character, send the produced character verbatim.
-        // Do NOT try to emulate Shift+<physical> for punctuation, because that easily double-applies modifiers.
-        if (!event.ctrlKey && !event.altKey && !event.metaKey && rawKey.length === 1) {
-            typedText = (typedText + rawKey).slice(-128)
+        const key_id = event.key + "||" + event.code
+        if (!downKeys.includes(key_id)) {
+            downKeys.push(key_id)
             markDirty()
-
-            if (event.cancelable) event.preventDefault()
-            event.stopPropagation()
-            return
         }
 
-        // Otherwise, treat as a held key (for shortcuts like Ctrl+A, arrows, etc.).
-        const code = typeof event.code === "string" ? event.code : ""
-        if (code) {
-            // Normalize letters so Shift is represented by Shift key (for Ctrl+letter combos).
-            let key = rawKey
-            if (key.length === 1 && /[a-zA-Z]/.test(key)) key = key.toLowerCase()
-            keysHeld.set(code, key)
-        }
-        markDirty()
 
-        // Avoid the controller (browser) interpreting key combos.
-        // Note: some browser/OS reserved shortcuts may still win.
-        if (event.cancelable) event.preventDefault()
-        event.stopPropagation()
+        // const rawKey = typeof event.key === "string" ? event.key : ""
+        // if (!rawKey || rawKey === "Dead") return
+
+        // // "Alien keyboard": if this key produces a character, send the produced character verbatim.
+        // // Do NOT try to emulate Shift+<physical> for punctuation, because that easily double-applies modifiers.
+        // if (!event.ctrlKey && !event.altKey && !event.metaKey && rawKey.length === 1) {
+        //     typedText = (typedText + rawKey).slice(-128)
+        //     markDirty()
+
+        //     if (event.cancelable) event.preventDefault()
+        //     event.stopPropagation()
+        //     return
+        // }
+
+        // // Otherwise, treat as a held key (for shortcuts like Ctrl+A, arrows, etc.).
+        // const code = typeof event.code === "string" ? event.code : ""
+        // if (code) {
+        //     // Normalize letters so Shift is represented by Shift key (for Ctrl+letter combos).
+        //     let key = rawKey
+        //     if (key.length === 1 && /[a-zA-Z]/.test(key)) key = key.toLowerCase()
+        //     keysHeld.set(code, key)
+        // }
+        // markDirty()
+
+        // // Avoid the controller (browser) interpreting key combos.
+        // // Note: some browser/OS reserved shortcuts may still win.
+        // if (event.cancelable) event.preventDefault()
+        // event.stopPropagation()
     }
 
     function onKeyUp(event) {
         if (document.activeElement !== canvas) return
 
-        const code = typeof event.code === "string" ? event.code : ""
-        if (code) keysHeld.delete(code)
-        markDirty()
-        if (event.cancelable) event.preventDefault()
-        event.stopPropagation()
+        const key_id = event.key + "||" + event.code
+        const index = downKeys.indexOf(key_id)
+        if (index !== -1) {
+            downKeys.splice(index, 1)
+            markDirty()
+        }
+
+        // const code = typeof event.code === "string" ? event.code : ""
+        // if (code) keysHeld.delete(code)
+        // markDirty()
+        // if (event.cancelable) event.preventDefault()
+        // event.stopPropagation()
     }
 
     canvas.addEventListener("mousemove", onMouseMove)

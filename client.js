@@ -575,32 +575,28 @@ async function applyControlsWithWindows(state, controls, geometry, driver) {
         }
     }
 
-    // Type produced text as unicode ("alien keyboard").
-    const pressText = typeof controls.keys?.press === 'string' ? controls.keys.press : ''
-    if (pressText) {
-        await driver.send({ type: 'text', text: pressText })
-    }
 
-    const keysDown = controls.keys?.down
+    const keysDown = controls.keys
     if (Array.isArray(keysDown)) {
-        const nextKeys = new Set()
-        for (const entry of keysDown) {
-            const { code, key } = normalizeKeyEntry(entry)
-            const vk = keyToWindowsVk(key) ?? codeToWindowsVk(code)
-            if (vk != null) nextKeys.add(vk)
-        }
+        console.log(keysDown)
+        // const nextKeys = new Set()
+        // for (const entry of keysDown) {
+        //     const { code, key } = normalizeKeyEntry(entry)
+        //     const vk = keyToWindowsVk(key) ?? codeToWindowsVk(code)
+        //     if (vk != null) nextKeys.add(vk)
+        // }
 
-        for (const vk of state.lastKeysDown) {
-            if (!nextKeys.has(vk)) {
-                await driver.send({ type: 'keyup', vk })
-            }
-        }
-        for (const vk of nextKeys) {
-            if (!state.lastKeysDown.has(vk)) {
-                await driver.send({ type: 'keydown', vk })
-            }
-        }
-        state.lastKeysDown = nextKeys
+        // for (const vk of state.lastKeysDown) {
+        //     if (!nextKeys.has(vk)) {
+        //         await driver.send({ type: 'keyup', vk })
+        //     }
+        // }
+        // for (const vk of nextKeys) {
+        //     if (!state.lastKeysDown.has(vk)) {
+        //         await driver.send({ type: 'keydown', vk })
+        //     }
+        // }
+        // state.lastKeysDown = nextKeys
     }
 
     if (Number.isFinite(time) && time > 0) {
