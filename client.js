@@ -275,9 +275,45 @@ function keyToXdotoolKey(key) {
         if (ch === ' ') return 'space'
         if (/[a-zA-Z]/.test(ch)) return ch.toLowerCase()
         if (/[0-9]/.test(ch)) return ch
-        // For other punctuation, try xdotool's keysym name if it matches.
-        // Many layouts will still work for letters (the main goal here).
-        return null
+        // Punctuation/symbols: map to X11 keysym names understood by xdotool.
+        // This is key for AZERTY where e.g. Shift+',' yields '?' (event.key='?').
+        const punct = {
+            '!': 'exclam',
+            '"': 'quotedbl',
+            '#': 'numbersign',
+            '$': 'dollar',
+            '%': 'percent',
+            '&': 'ampersand',
+            "'": 'apostrophe',
+            '(': 'parenleft',
+            ')': 'parenright',
+            '*': 'asterisk',
+            '+': 'plus',
+            ',': 'comma',
+            '-': 'minus',
+            '.': 'period',
+            '/': 'slash',
+            ':': 'colon',
+            ';': 'semicolon',
+            '<': 'less',
+            '=': 'equal',
+            '>': 'greater',
+            '?': 'question',
+            '@': 'at',
+            '[': 'bracketleft',
+            '\\': 'backslash',
+            ']': 'bracketright',
+            '^': 'asciicircum',
+            '_': 'underscore',
+            '`': 'grave',
+            '{': 'braceleft',
+            '|': 'bar',
+            '}': 'braceright',
+            '~': 'asciitilde',
+            '€': 'EuroSign',
+        }
+
+        return punct[ch] ?? null
     }
 
     switch (key) {

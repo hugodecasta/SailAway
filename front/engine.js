@@ -89,9 +89,10 @@ export function create_vizu_canvas(session_id) {
     window.addEventListener("resize", updateCanvasTargetSize)
 
     // Input state.
-    // Store key entries as a stable string so Set semantics work.
-    // Format: "<code>\u0000<key>" where key is layout-dependent.
-    const keysDown = new Set()
+    // Track by KeyboardEvent.code (stable), but send KeyboardEvent.key (layout-dependent).
+    // This avoids "stuck keys" when keyup reports a different .key (common with Shift+punctuation).
+    /** @type {Map<string, string>} */
+    const keysDown = new Map()
     let lastMouse = { x: 0, y: 0 }
     let mouse = { x: 0, y: 0, buttons: 0 }
     // Wheel is transient; accumulate between sends, then clear after send.
@@ -124,14 +125,7 @@ export function create_vizu_canvas(session_id) {
                 },
             },
             keys: {
-                down: Array.from(keysDown).map((entry) => {
-                    const i = entry.indexOf("\u0000")
-                    if (i === -1) return { code: entry, key: "" }
-                    return {
-                        code: entry.slice(0, i),
-                        key: entry.slice(i + 1),
-                    }
-                }),
+                down: Array.from(keysDown.entries()).map(([code, key]) => ({ code, key })),
             },
         }
     }
@@ -254,7 +248,9 @@ export function create_vizu_canvas(session_id) {
         // Avoid weird dead keys.
         if (!key || key === "Dead") return
 
-        keysDown.add(`${event.code}\u0000${key}`)
+        if (typeof event.code === "string" && event.code) {
+            keysDown.set(event.code, key)
+        }
         markDirty()
 
         // Avoid the controller (browser) interpreting key combos.
@@ -265,14 +261,9 @@ export function create_vizu_canvas(session_id) {
 
     function onKeyUp(event) {
         if (document.activeElement !== canvas) return
-        const rawKey = typeof event.key === "string" ? event.key : ""
-        let key = rawKey
-        if (key.length === 1 && /[a-zA-Z]/.test(key)) {
-            key = key.toLowerCase()
+        if (typeof event.code === "string" && event.code) {
+            keysDown.delete(event.code)
         }
-        if (!key || key === "Dead") return
-
-        keysDown.delete(`${event.code}\u0000${key}`)
         markDirty()
         if (event.cancelable) event.preventDefault()
         event.stopPropagation()
