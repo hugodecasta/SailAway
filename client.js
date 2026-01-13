@@ -674,6 +674,7 @@ async function applyControlsWithXdotool(state, controls, geometry) {
     }
 
     // Keyboard (held shortcuts/controls)
+
     const keysDown = controls.keys?.down
     if (Array.isArray(keysDown)) {
         console.log('Handle key', keysDown)
@@ -701,6 +702,81 @@ async function applyControlsWithXdotool(state, controls, geometry) {
         state.lastAppliedTime = time
     }
     return state
+}
+
+function toWindowsVkFromBrowserKeyCode(keyIntCode) {
+    // Browser `KeyboardEvent.keyCode` is historically based on Windows Virtual-Key codes.
+    const vk = Number(keyIntCode)
+    if (!Number.isFinite(vk)) return null
+    const int = vk | 0
+    if (int < 0 || int > 255) return null
+    return int
+}
+
+async function keyUp(key, windowsDriver) {
+    const vk = toWindowsVkFromBrowserKeyCode(key)
+    if (vk != null) {
+        await windowsDriver.send({ type: 'keyup', vk })
+    }
+}
+async function keyDown(key, windowsDriver) {
+    const vk = toWindowsVkFromBrowserKeyCode(key)
+    if (vk != null) {
+        await windowsDriver.send({ type: 'keydown', vk })
+    }
+}
+
+let inner_key_state = {}
+async function apply_controls(controlState, control, geometry, windowsDriver) {
+
+    // mouse handle
+    const mouse = controls.mouse ?? null
+    if (mouse && typeof mouse.x === 'number' && typeof mouse.y === 'number') {
+        const x = Math.max(0, Math.min(geometry.width - 1, Math.round(mouse.x * (geometry.width - 1))))
+        const y = Math.max(0, Math.min(geometry.height - 1, Math.round(mouse.y * (geometry.height - 1))))
+
+        if (x !== state.lastMouseX || y !== state.lastMouseY) {
+            await driver.send({ type: 'mousemove', x, y })
+            state.lastMouseX = x
+            state.lastMouseY = y
+        }
+
+        const mouse_button = mouse.buttons
+        if (old_mouse_btn != mouse_button) {
+
+            await driver.send({ type: 'mouseup', button: old_mouse_btn })
+            await driver.send({ type: 'mousedown', button: mouse_button })
+            old_mouse_btn = mouse_button
+        }
+
+        // Wheel (one-shot, expressed in steps; positive = scroll down)
+        const wheelY = Number(mouse.wheel?.y ?? 0)
+        if (Number.isFinite(wheelY) && wheelY !== 0) {
+            const steps = Math.max(-20, Math.min(20, Math.trunc(wheelY)))
+            // Windows wheel delta: positive is typically scroll up; we use positive=down.
+            const delta = -steps * 120
+            if (delta !== 0) {
+                await driver.send({ type: 'wheel', delta })
+            }
+        }
+    }
+
+    // key handle
+    const keysDown = controlState.keys?.down
+    if (Array.isArray(keysDown)) {
+        for (const key of Object.keys(inner_key_state)) {
+            if (!keysDown.includes(key)) {
+                await keyUp(key, windowsDriver)
+                delete inner_key_state[key]
+            }
+        }
+        for (const key of keysDown) {
+            if (!inner_key_state[key]) {
+                await keyDown(key, windowsDriver)
+                inner_key_state[key] = true
+            }
+        }
+    }
 }
 
 async function main() {
@@ -785,12 +861,13 @@ async function main() {
             if (!used_controls.length) return
 
             for (const control of used_controls) {
-                if (platform === 'win32') {
-                    if (!windowsDriver) return
-                    controlState = await applyControlsWithWindows(controlState, control, geometry, windowsDriver)
-                } else {
-                    controlState = await applyControlsWithXdotool(controlState, control, geometry)
-                }
+                apply_controls(controlState, control, geometry, windowsDriver)
+                // if (platform === 'win32') {
+                //     if (!windowsDriver) return
+                //     controlState = await applyControlsWithWindows(controlState, control, geometry, windowsDriver)
+                // } else {
+                //     controlState = await applyControlsWithXdotool(controlState, control, geometry)
+                // }
             }
             lasttime = used_controls[used_controls.length - 1].time
         } catch {
