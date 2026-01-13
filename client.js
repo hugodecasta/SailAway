@@ -8,7 +8,7 @@ import screenshot from 'screenshot-desktop'
 
 const server = process.env.SAILAWAY_SERVER ?? 'http://localhost:8080'
 const update_time_ms = Number(process.env.SAILAWAY_UPDATE_MS ?? 100) // ms
-const apply_controls = (process.env.SAILAWAY_APPLY_CONTROLS ?? '1') !== '0'
+// const apply_controls = (process.env.SAILAWAY_APPLY_CONTROLS ?? '1') !== '0'
 
 const compress_images = (process.env.SAILAWAY_COMPRESS_IMAGES ?? '1') !== '0'
 const image_format = String(process.env.SAILAWAY_IMAGE_FORMAT ?? 'jpeg').toLowerCase() // jpeg|webp|png
@@ -730,7 +730,7 @@ let inner_key_state = {}
 async function apply_controls(controlState, control, geometry, windowsDriver) {
 
     // mouse handle
-    const mouse = controls.mouse ?? null
+    const mouse = controlState.mouse ?? null
     if (mouse && typeof mouse.x === 'number' && typeof mouse.y === 'number') {
         const x = Math.max(0, Math.min(geometry.width - 1, Math.round(mouse.x * (geometry.width - 1))))
         const y = Math.max(0, Math.min(geometry.height - 1, Math.round(mouse.y * (geometry.height - 1))))
@@ -784,13 +784,12 @@ async function main() {
     console.log(`session_id=${session_id}`)
     console.log(`server=${server}`)
     console.log(`interval_ms=${update_time_ms}`)
-    console.log(`apply_controls=${apply_controls}`)
 
     const platform = process.platform
     let geometry = null
     let canApplyControls = false
     let windowsDriver = null
-    if (apply_controls) {
+    if (true) {
         try {
             if (platform === 'win32') {
                 geometry = await getDisplayGeometryWindows()
@@ -880,7 +879,7 @@ async function main() {
     }, update_time_ms)
 
     // Poll controls at the same cadence as streaming.
-    if (apply_controls) {
+    if (true) {
         await controlTick()
         setInterval(() => {
             void controlTick()
